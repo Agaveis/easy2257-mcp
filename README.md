@@ -9,6 +9,10 @@ statement, and the setup notes.
 **Endpoint:** `https://easy2257.com/api/mcp` (Streamable HTTP)
 **Setup and screenshots:** <https://easy2257.com/ai-assistant>
 
+This connector reads one account's own compliance state. It is not the Easy2257
+Partner API, which is the separate integration surface a platform uses to
+receive compliance events.
+
 Easy2257 keeps 18 U.S.C. 2257 records for adult content producers: who was in a
 scene, that their identity was verified, which paperwork is signed, and a
 certificate proving the record existed at a point in time. This connector lets
@@ -25,18 +29,19 @@ The connection reports state. It cannot create a scene, change a record, sign
 anything, attest to anything, or spend money. Paid actions and attestations
 happen at easy2257.com, by a person, on purpose.
 
-What comes back is compliance state: ids, public codes (`SCENE-`, `PROJ-`,
-`LOG-`), statuses, counts, dates, and content hashes. It never returns
-performer names, dates of birth, ID numbers, images, file paths, addresses, or
-the contents of anyone's documents. That is a deliberate boundary, not a gap,
-and it is what makes this surface safe to point a shared assistant at: there is
-no identity data in it to leak.
+What comes back is compliance state: ids, public codes (`SCENE-`, `PROD-`,
+`LOG-`), statuses, counts, dates, integrity hashes, and the short titles you
+wrote yourself, returned only to the account that owns them. It never returns a
+performer's name, date of birth, ID number, image, file path, address, or the
+contents of anyone's document: those columns are not selected. That is a
+deliberate boundary, not a gap, and it is what makes this surface safe to point
+a shared assistant at.
 
 Three guarantees, restated plainly:
 
 - **It only reads.** No tool creates, changes, signs, or deletes a record.
-- **No identity data crosses the wire.** Statuses, codes, counts, dates, and
-  integrity hashes only.
+- **No identity data crosses the wire.** Statuses, codes, counts, dates,
+  integrity hashes, and your own titles only.
 - **No money moves.** No tool touches checkout, scene activation, or any paid
   action.
 
@@ -56,11 +61,13 @@ key. OAuth 2.1 with PKCE; the single scope is `mcp:read`.
 ### Paste a key
 
 For Claude Code, Cursor, VS Code with Copilot, Windsurf, Gemini CLI, Codex CLI,
-and anything else that lets you set a connection header. Create a key under
+and anything else that lets you set a connection header. Several of these can
+also sign in; either route works. Create a key under
 **Account, then MCP Keys** at
 <https://easy2257.com/profile/account/api-keys>. Keys start with `ez_mcp_`,
-are shown once, and are stored only as a hash. You can hold ten at a time and
-revoke any of them at any moment.
+are shown once, and are stored as a hash plus the first four characters, which
+is how the settings screen tells one key from another. You can hold ten at a
+time and revoke any of them at any moment.
 
 Command-line assistants usually take one line:
 
@@ -87,7 +94,8 @@ Editors and other assistants usually take a config block:
 Every connected assistant, key or sign-in, is listed on the same settings
 screen with a one-click disconnect. Revoking ends access immediately.
 
-Included with every Easy2257 plan.
+Included with every Easy2257 plan. The two content log tools are part of the
+solo creator plan; on other plans they refuse and say so.
 
 ## The sixteen tools
 
@@ -97,9 +105,9 @@ Included with every Easy2257 plan.
 |------|-----------------|
 | `list_productions` | Your productions with their documentation status and certificate state. |
 | `get_production` | One production, scene by scene. |
-| `get_scene_compliance` | Exactly what is outstanding on a scene: pending invites, unverified identities, unsigned forms, missing releases. |
-| `list_compliance_gaps` | Everything outstanding across the account, so an assistant can answer "what still needs work?" in one call. |
-| `list_expiring_documents` | Paperwork coming up for renewal, with dates. |
+| `get_scene_compliance` | Per-participant state for one scene: invite state, identity verification, form and document counts, and model release. Participants appear by role and an opaque id, never by name. |
+| `list_compliance_gaps` | Every scene with outstanding compliance work, in one call, so an assistant can answer "which scenes still need something?". Cancelled scenes are excluded, and expiring paperwork has its own tool. |
+| `list_expiring_documents` | Paperwork that expires within a window you choose, with dates. Anything already overdue is included. |
 
 ### Certificates and archives
 
@@ -114,7 +122,7 @@ Included with every Easy2257 plan.
 | Tool | What it answers |
 |------|-----------------|
 | `get_account_status` | Plan, allowance, and published custodian statement. |
-| `get_compliance_requirements` | The document requirements a complete record has to meet. |
+| `get_compliance_requirements` | The document tiers this platform applies, kept separate, plus the participant roles, the checks that produce a gap, and the templates this account can use. |
 | `get_removal_requests_summary` | Removal and takedown requests linked to your own records, by status and legal basis. Nothing about who filed one. |
 | `list_notifications` | Account notifications. |
 | `list_webhook_deliveries` | Webhook delivery outcomes. |
@@ -127,8 +135,11 @@ Included with every Easy2257 plan.
 | `get_content_log` | One content log. |
 | `verify_record` | The evidence state behind a public record code, which is how a platform confirms what a creator sent it. |
 
-Lookups of codes that are not yours are rate limited per key, and an exhausted
-key learns nothing, not even whether a code exists.
+Looking up a code that is not yours is rate limited per credential, the same
+whether you signed in or pasted a key, and an exhausted credential learns
+nothing, not even whether a code exists. Your own records are free through
+`verify_record`. `verify_certificate` always counts, even for your own
+certificates; use `get_certificate` for those.
 
 Example questions are in [`docs/example-prompts.md`](docs/example-prompts.md).
 

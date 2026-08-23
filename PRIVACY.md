@@ -8,7 +8,7 @@ cannot: exactly what an AI assistant sees when you connect it.
 
 Compliance state about your own account, and only that:
 
-- Record identifiers and public codes (`SCENE-`, `PROJ-`, `LOG-`).
+- Record identifiers and public codes (`SCENE-`, `PROD-`, `LOG-`).
 - Statuses: whether an identity is verified, whether a form is signed, whether
   a scene is complete, whether a certificate is current, superseded, or
   revoked.
@@ -26,11 +26,17 @@ Not redacted, not truncated. Never selected in the first place:
 - File paths, storage keys, or download links to stored evidence.
 - Addresses, contact details, or IP addresses.
 - Anything about a person who filed a removal request.
-- Any other producer's records.
+- Another producer's records, beyond what a public code lookup returns. A
+  `SCENE-`, `PROD-` or `LOG-` code someone hands you resolves to completeness
+  states, participant counts and provenance counts only, and never to a name, a
+  title, or a document.
 
 Every query behind a tool is a named, fixed selection of columns. A test suite
-runs all sixteen tools against deliberately poisoned rows and fails the build
-if any identifying key or value reaches the output.
+calls all sixteen tools against rows deliberately poisoned with performer names,
+dates of birth, ID numbers, free text, storage keys, IP addresses and claimant
+details, and fails the build if any of those keys or values reaches the output.
+A second test asserts the sweep covers every registered tool, so a new tool
+cannot skip it.
 
 ## What the connector cannot do
 
@@ -43,9 +49,11 @@ person, on purpose.
 
 Two ways to connect, one authorization story.
 
-- **Pasted key.** Keys begin with `ez_mcp_`, are shown once, and are stored
-  only as a hash. Up to ten active keys per account. Revoking one ends its
-  access immediately. All keys are revoked on a password reset.
+- **Pasted key.** Keys begin with `ez_mcp_`, are shown once, and are stored as
+  a SHA-256 hash plus the first four characters, which is how the settings
+  screen tells one key from another. The key itself is unrecoverable. Up to ten
+  active keys per account. Revoking one ends its access immediately. All keys
+  are revoked on a password reset.
 - **Sign-in.** OAuth 2.1 with PKCE, one scope (`mcp:read`), access tokens valid
   for one hour and refresh tokens for thirty idle days with rotation. The
   assistant never receives your password.
@@ -56,8 +64,10 @@ Either way, the credential resolves to your account and only your account.
 
 Looking up a public record code that does not belong to you is rate limited per
 credential. A miss counts against the limit, so an exhausted credential learns
-nothing, not even whether a code exists. Lookups of your own records are not
-limited.
+nothing, not even whether a code exists. Looking up your own records with
+`verify_record` is free. Checking a certificate with `verify_certificate`
+always counts, your own included; for your own certificates use
+`get_certificate`, which is not limited and tells you more.
 
 ## Where the data goes
 

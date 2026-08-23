@@ -72,3 +72,8 @@ jobs:
         run: |
           ./mcp-publisher login github-oidc
           ./mcp-publisher publish
+
+      - name: Confirm the published row agrees with this repo
+        # A publish that half-lands is caught in the run that caused it, not
+        # tomorrow morning by the scheduled check.
+        run: python3 scripts/check-listing.py

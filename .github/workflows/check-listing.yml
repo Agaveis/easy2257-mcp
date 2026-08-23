@@ -1,0 +1,55 @@
+name: Check the listing for drift
+
+# Why this exists
+# ---------------
+# The same facts about this server are written in six places: this repo's
+# server.json, the registry row, the app's /.well-known/mcp/server.json, the two
+# OAuth discovery documents, and the prose on llms.txt, /ai-assistant and the
+# docs site. On 2026-08-23 two of them disagreed about the server's own name for
+# several hours and a person reading found it. This is the check that should
+# have.
+#
+# It holds no credential and never will. See the header of
+# scripts/check-listing.py for what it asserts and, more importantly, what it
+# deliberately does not compare.
+
+on:
+  schedule:
+    # 13:00 UTC is early morning in Phoenix, so an overnight break is waiting at
+    # the start of the day. Not hourly: none of these facts change hourly, and
+    # hourly turns one transient 502 into a daily false alarm.
+    - cron: "0 13 * * *"
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+    paths:
+      - server.json
+      - README.md
+      - PRIVACY.md
+      - docs/**
+      - scripts/check-listing.py
+
+# A hand dispatch must not interleave with the schedule.
+concurrency:
+  group: check-listing
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # On a push the repo is SUPPOSED to be ahead of the registry until the
+      # publish workflow runs, so version and the live prose surfaces are not
+      # evidence of drift yet. --repo-only downgrades exactly those.
+      - name: Check for drift
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            python3 scripts/check-listing.py --repo-only
+          else
+            python3 scripts/check-listing.py
+          fi
