@@ -131,13 +131,29 @@ def main() -> int:
                           ", ".join(f"{k}={v!r}" for k, v in vals.items()))
 
     # ---- 1, 2, 3: the three copies must agree on identity -----------------
+    #
+    # Every field the three copies share is compared. The first version checked
+    # five of seven and silently skipped `repository` and `websiteUrl`, which
+    # was not academic: in the app route BOTH `websiteUrl` and `remotes[0].url`
+    # are built from `NEXT_PUBLIC_APP_URL`. The endpoint was hard-checked and
+    # the documentation URL was not, so an env change would move one loudly and
+    # the other in silence, and the reachability probe below would still pass
+    # because the moved page would be a real page answering 200. That is the
+    # same defect class this script exists to catch, one field to the left.
+    #
+    # Identity, hard even on a push: changing either of these is a re-listing,
+    # not an edit, so there is no legitimate window where they differ.
     compare("remote_url", hard, "remotes[0].url")
     compare("name", hard, "name")
-    # version is the field designed to move. While the repo sits ahead of an
-    # unpublished row that is correct, not broken, so a push run only warns.
-    compare("version", warn if repo_only else hard, "version")
-    compare("description", warn, "description")
-    compare("title", warn, "title")
+    # Everything else the copies share. Hard in steady state, warn on a push,
+    # because the point of a push is that the repo is deliberately ahead of the
+    # registry until the publish workflow runs.
+    mutable = warn if repo_only else hard
+    compare("version", mutable, "version")
+    compare("websiteUrl", mutable, "websiteUrl")
+    compare("repository", mutable, "repository")
+    compare("description", mutable, "description")
+    compare("title", mutable, "title")
 
     desc = local.get("description", "")
     if len(desc) > 100:
@@ -353,6 +369,19 @@ def main() -> int:
             warn.append(f"{url} answered {r[0]}")
 
     # ---- report -----------------------------------------------------------
+    #
+    # The mode is stated on every line that reports a result, because a green
+    # run in the wrong mode is worse than a red one. Two push runs passed
+    # before anyone noticed that --repo-only never opens llms.txt,
+    # /ai-assistant or the docs page at all, so a runs list full of green ticks
+    # meant only that the repo agreed with itself.
+    if repo_only:
+        scope = ("repo-only: the three live prose surfaces were NOT checked, "
+                 "and version, websiteUrl, repository, description and title "
+                 "were downgraded to warnings")
+    else:
+        scope = "full: every copy and every live surface was checked"
+
     for u in unreachable:
         print(f"::warning::unreachable after {RETRIES} tries, not treated as drift: {u}")
     for w in warn:
@@ -360,10 +389,13 @@ def main() -> int:
     for h in hard:
         print(f"::error::{h}")
 
+    print(f"\nmode: {scope}")
     if hard:
-        print(f"\nFAIL: {len(hard)} hard, {len(warn)} warnings")
+        print(f"FAIL ({'repo-only' if repo_only else 'full'}): "
+              f"{len(hard)} hard, {len(warn)} warnings")
         return 1
-    print(f"\nOK: no drift. {len(warn)} warnings, {len(unreachable)} unreachable.")
+    print(f"OK ({'repo-only' if repo_only else 'full'}): no drift. "
+          f"{len(warn)} warnings, {len(unreachable)} unreachable.")
     return 0
 
 

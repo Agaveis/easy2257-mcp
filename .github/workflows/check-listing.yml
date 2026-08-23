@@ -1,5 +1,14 @@
 name: Check the listing for drift
 
+# The runs list is read at a glance, so it has to say which mode ran. A push
+# run takes --repo-only and never opens llms.txt, /ai-assistant or the docs
+# page; two of those passed and read as full coverage until someone checked the
+# event type. The mode is now in the run title and in the script's own output.
+run-name: >-
+  drift ${{ github.event_name == 'push'
+    && '(repo-only, live prose surfaces NOT checked)'
+    || '(full)' }}
+
 # Why this exists
 # ---------------
 # The same facts about this server are written in six places: this repo's
