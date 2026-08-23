@@ -1,0 +1,5 @@
+# JSON and Markdown here are read by registry tooling on Linux. Keep them LF
+# so a hash or a signature computed on Windows matches what CI sees.
+*.json text eol=lf
+*.md text eol=lf
+*.yml text eol=lf

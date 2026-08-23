@@ -1,0 +1,18 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.Agaveis/easy2257-mcp",
+  "title": "Easy2257",
+  "description": "Read your 18 U.S.C. 2257 compliance records: what is outstanding, expiring, or certified.",
+  "version": "1.0.0",
+  "websiteUrl": "https://easy2257.com/ai-assistant",
+  "repository": {
+    "url": "https://github.com/Agaveis/easy2257-mcp",
+    "source": "github"
+  },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://easy2257.com/api/mcp"
+    }
+  ]
+}

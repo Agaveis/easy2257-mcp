@@ -1,0 +1,74 @@
+name: Publish to the MCP registry
+
+# Why this exists
+# ---------------
+# The registry entry (io.github.Agaveis/easy2257-mcp) has to be republished by
+# hand whenever server.json changes, and `mcp-publisher login github` is an
+# interactive device-code flow. GitHub Actions OIDC authenticates without any
+# human step, because this repo IS the io.github.Agaveis namespace the registry
+# checks. Same pattern as Agaveis/hiberden-mcp.
+#
+# Easy2257 is a REMOTE server: there is no package and no artifact hash to
+# check. The equivalent pre-flight is that the endpoint we are about to
+# advertise is actually up and actually protected. A registry row pointing at a
+# dead endpoint is worse than a stale one: clients fail at connect.
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  id-token: write # the OIDC token IS the registry credential
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the publisher CLI
+        run: |
+          curl -fsSL --retry 3 \
+            "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/').tar.gz" \
+            | tar xz mcp-publisher
+          ./mcp-publisher --version
+
+      - name: Confirm the endpoint in server.json is live and protected
+        run: |
+          URL=$(python3 -c "import json;print(json.load(open('server.json'))['remotes'][0]['url'])")
+          echo "probing $URL"
+          CODE=$(curl -sS --retry 3 --max-time 30 -o body.txt -w '%{http_code}' \
+            -X POST "$URL" \
+            -H 'Content-Type: application/json' \
+            -H 'Accept: application/json, text/event-stream' \
+            -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"registry-preflight","version":"1"}}}' \
+            -D headers.txt || echo 000)
+          echo "status $CODE"
+          case "$CODE" in
+            200|400|401|405) ;;
+            *) echo "::error::$URL answered $CODE; refusing to advertise it"; cat body.txt; exit 1 ;;
+          esac
+          # A 200 here would mean the endpoint stopped requiring a credential.
+          # That is a security regression, not a publishing problem, but it is
+          # not something to broadcast to every MCP client either.
+          if [ "$CODE" = "200" ]; then
+            echo "::error::$URL served initialize with no credential"; exit 1
+          fi
+          grep -iq '^www-authenticate:' headers.txt \
+            || { echo "::error::no WWW-Authenticate challenge; sign-in clients cannot discover how to authenticate"; exit 1; }
+          echo "endpoint is live and challenging correctly"
+
+      - name: Confirm the protected-resource metadata resolves
+        # This is the document the WWW-Authenticate challenge points at. A
+        # sign-in client follows it before it can start the OAuth flow, so if
+        # it 404s the "add a connector" path is broken even though the
+        # endpoint itself looks fine.
+        run: |
+          curl -fsS --retry 3 --max-time 30 \
+            https://easy2257.com/.well-known/oauth-protected-resource -o prm.json
+          python3 -c "import json;d=json.load(open('prm.json'));print('resource:',d['resource'])"
+
+      - name: Authenticate and publish
+        run: |
+          ./mcp-publisher login github-oidc
+          ./mcp-publisher publish
