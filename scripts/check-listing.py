@@ -242,12 +242,69 @@ def main() -> int:
     # VIRP), not a federal one. On 2026-08-23 the product asserted otherwise on
     # three separate surfaces and each one was caught by a person. There is no
     # window in which that sentence is briefly correct, so this is hard.
+    #
+    # It matches per SENTENCE, not per character window, and exempts a sentence
+    # that attributes the release correctly. The first version did neither and
+    # fired within the hour on llms.txt:87, "the exact records and site
+    # statement 18 U.S.C. 2257 requires, the signed release the card networks
+    # add on top" — which is not just correct, it is the BEST sentence on the
+    # site, because it names both obligations and separates them. A guard that
+    # fails hardest on the most careful copy teaches people to delete the
+    # nuance, and then it gets muted.
     REQUIRING = r"(requires?|required|mandates?|mandated|obligat\w*)"
+    FEDERAL = r"(2257|28 ?C\.?F\.?R\.?|federal law)"
+    RELEASE = r"(model release|signed release|\brelease\b)"
+    # Naming who really asks for it is what makes the pairing true.
+    ATTRIBUTED = re.compile(
+        r"(card network|mastercard|visa\b|AN ?5196|VIRP|processor|acquirer|"
+        r"add on top|on top of|not by 2257|not a federal|not federal|"
+        r"rather than 2257|beyond 2257)", re.I)
+
+    # Legal citations are full of full stops. Splitting naively turns
+    # "18 U.S.C. 2257" into "18 U.", "S.", "C. 2257" and separates the statute
+    # from its number, so the sentence stops matching and the guard silently
+    # passes everything. The self-test below is what caught this.
+    ABBREV = [("U.S.C.", "\x01USC\x01"), ("C.F.R.", "\x01CFR\x01"),
+              ("U.S.", "\x01US\x01"), ("e.g.", "\x01EG\x01"),
+              ("i.e.", "\x01IE\x01"), ("etc.", "\x01ETC\x01")]
+
+    def sentences(text: str):
+        for src, tok in ABBREV:
+            text = text.replace(src, tok)
+        for chunk in re.split(r"(?<=[.!?])\s+|\n+", text):
+            for src, tok in ABBREV:
+                chunk = chunk.replace(tok, src)
+            chunk = chunk.strip()
+            if chunk:
+                yield chunk
+
+    def legal_tripwire(text: str):
+        """Yield offending sentences. Empty means clean."""
+        for s in sentences(text):
+            # A question is a heading above an answer. "Is a model release
+            # required by 2257?" is the correct thing to ask.
+            if s.rstrip().endswith("?"):
+                continue
+            if not (re.search(FEDERAL, s, re.I) and re.search(RELEASE, s, re.I)
+                    and re.search(REQUIRING, s, re.I)):
+                continue
+            if ATTRIBUTED.search(s):
+                continue
+            yield s
+
+    # Self-test, so this cannot rot into a no-op once the copy it was built for
+    # is gone. If either of these flips, the guard is broken, not the site.
+    _BAD = "Required by 18 U.S.C. 2257 for every depicted performer, the model release."
+    _GOOD = ("The exact records and site statement 18 U.S.C. 2257 requires, the "
+             "signed release the card networks add on top, plus retention.")
+    if not list(legal_tripwire(_BAD)):
+        hard.append("GUARD BROKEN: the legal tripwire no longer catches its own "
+                    "known-bad sentence")
+    if list(legal_tripwire(_GOOD)):
+        hard.append("GUARD BROKEN: the legal tripwire fires on correctly "
+                    "attributed copy")
+
     TRIPWIRES = [
-        (re.compile(rf"2257.{{0,80}}{REQUIRING}.{{0,80}}release", re.I | re.S),
-         "text ties 2257 to a required release"),
-        (re.compile(rf"release.{{0,60}}{REQUIRING}.{{0,60}}2257", re.I | re.S),
-         "text ties a required release to 2257"),
         (re.compile(r"Required by 18 U\.S\.C\. 2257.*MODEL_RELEASE|"
                     r"MODEL_RELEASE.*Required by 18 U\.S\.C\. 2257", re.I),
          "the literal app-side defect string"),
@@ -264,6 +321,10 @@ def main() -> int:
         stripped = re.sub(r"<script.*?</script>|<style.*?</style>", " ", text,
                           flags=re.S | re.I)
         stripped = re.sub(r"<[^>]+>", " ", stripped)
+        for offender in legal_tripwire(stripped):
+            hard.append(f"{name}: a sentence ties a federal marker to a required "
+                        f"release without saying who really asks for it -> "
+                        f"{offender[:160]!r}")
         for rx, why in hard_patterns:
             m = rx.search(stripped)
             if m:
