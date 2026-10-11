@@ -1,0 +1,111 @@
+name: Publish the stdio bridge image to Docker Hub
+
+# Why this exists
+# ---------------
+# The Easy2257 MCP server is hosted at https://easy2257.com/api/mcp and this
+# repo is its public listing. Some MCP clients cannot send an Authorization
+# header on their own, so this workflow builds and publishes a small image
+# that bridges MCP over stdio to the hosted endpoint (see Dockerfile and
+# bridge/). Nothing here deploys to or touches the Easy2257 app.
+#
+# Every push to Docker Hub comes from this workflow, signed in with the
+# DOCKERHUB_USERNAME variable and the DOCKERHUB_TOKEN secret. The Docker Hub
+# overview is set from README.md on every publish so the two never drift
+# (docker push does not set it).
+#
+# Runs on a published release whose tag is v<semver>, or by hand with the
+# version typed in. Every action and the base image are pinned.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Image version to tag, digits and dots only (for example 1.0.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: agaveis/easy2257-mcp
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Resolve the version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            V="${{ github.event.release.tag_name }}"
+            V="${V#v}"
+          else
+            V="${{ inputs.version }}"
+          fi
+          case "$V" in
+            *[!0-9.]*|"") echo "::error::version '$V' is not digits and dots"; exit 1 ;;
+          esac
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "publishing $IMAGE:$V"
+
+      - name: Build the image once and prove the bridge starts
+        # A build that cannot even refuse a missing key is not worth pushing.
+        # The entrypoint exits 2 with a plain message when EASY2257_API_KEY is
+        # unset; anything else here means the image is broken.
+        run: |
+          docker build -t "$IMAGE:ci" .
+          set +e
+          OUT=$(docker run --rm "$IMAGE:ci" 2>&1)
+          CODE=$?
+          set -e
+          echo "$OUT"
+          [ "$CODE" = "2" ] || { echo "::error::expected exit 2 without a key, got $CODE"; exit 1; }
+          echo "$OUT" | grep -q 'EASY2257_API_KEY is not set' || { echo "::error::missing-key message not shown"; exit 1; }
+          docker run --rm --entrypoint node "$IMAGE:ci" -e "console.log(require('/app/node_modules/mcp-remote/package.json').version)" | grep -qx '0.14.3' \
+            || { echo "::error::mcp-remote is not the pinned 0.14.3"; exit 1; }
+
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build for amd64 and arm64 and push
+        id: push
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: false
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.version.outputs.version }}
+            ${{ env.IMAGE }}:latest
+          labels: |
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: Set the Docker Hub overview from README.md
+        # Needs a token with read, write and delete scope (the action's
+        # README, v5.0.0). With a narrower token this step fails and the
+        # image is still published; the overview is then pasted once by hand.
+        uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa # v5.0.0
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ env.IMAGE }}
+          short-description: "stdio bridge to the hosted Easy2257 MCP server: read-only 18 U.S.C. 2257 compliance records"
+          readme-filepath: ./README.md
+
+      - name: Confirm the pushed tag resolves
+        run: |
+          docker buildx imagetools inspect "$IMAGE:${{ steps.version.outputs.version }}"
+          echo "digest ${{ steps.push.outputs.digest }}"

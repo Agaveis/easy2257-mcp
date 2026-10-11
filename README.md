@@ -91,6 +91,42 @@ Editors and other assistants usually take a config block:
 }
 ```
 
+### Run it as a container (clients that cannot set a header)
+
+Some MCP clients can only start a local command over stdio and cannot attach a
+header. For those, `agaveis/easy2257-mcp` on Docker Hub is a small image that
+bridges stdio to the hosted server. It contains no server code: it runs the
+official `mcp-remote` package, pinned by version, and forwards every request to
+`https://easy2257.com/api/mcp` with your key as the bearer token. The server is
+still hosted by Easy2257; the image only carries the stream.
+
+```
+docker run -i --rm -e EASY2257_API_KEY=YOUR_KEY agaveis/easy2257-mcp:latest
+```
+
+As a config block:
+
+```json
+{
+  "mcpServers": {
+    "easy2257": {
+      "command": "docker",
+      "args": ["run", "-i", "--rm", "-e", "EASY2257_API_KEY", "agaveis/easy2257-mcp:latest"],
+      "env": {
+        "EASY2257_API_KEY": "YOUR_KEY"
+      }
+    }
+  }
+}
+```
+
+The key stays in your environment and is never written into the image or its
+logs. Without a key the container exits with a message and does nothing. The
+image is built from this repository's [`Dockerfile`](Dockerfile) and
+[`bridge/`](bridge/) by the
+[`publish-dockerhub`](.github/workflows/publish-dockerhub.yml) workflow, with
+the base image, every package and every action pinned.
+
 Every connected assistant, key or sign-in, is listed on the same settings
 screen with a one-click disconnect. Revoking ends access immediately.
 
@@ -160,3 +196,7 @@ stored credential.
 ## Support
 
 Questions and problems: <https://easy2257.com/contact>.
+
+**Website:** https://easy2257.com
+**Listing and source:** https://github.com/Agaveis/easy2257-mcp
+Built and maintained by [AgaveIS](https://agaveis.com), Scottsdale, Arizona.

@@ -1,0 +1,4 @@
+*
+!bridge/package.json
+!bridge/package-lock.json
+!bridge/entrypoint.sh
